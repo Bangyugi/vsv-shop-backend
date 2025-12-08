@@ -3,6 +3,7 @@ package com.bangvan.repository;
 import com.bangvan.entity.Seller;
 import com.bangvan.entity.SellerReport;
 import com.bangvan.entity.User;
+import com.bangvan.utils.AccountStatus;
 import io.lettuce.core.dynamic.annotation.Param;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,5 +23,5 @@ public interface SellerRepository extends JpaRepository<Seller, Long> {
 
     Page<Seller> findByUser_EnabledIsTrue(Pageable pageable);
 
-
+    Page<Seller> findByAccountStatus(AccountStatus accountStatus, Pageable pageable);
 }

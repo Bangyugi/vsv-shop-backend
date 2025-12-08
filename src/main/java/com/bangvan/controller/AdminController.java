@@ -1,5 +1,5 @@
 package com.bangvan.controller;
-import com.bangvan.dto.request.category.CategoryRequest;
+
 import com.bangvan.dto.response.ApiResponse;
 import com.bangvan.dto.response.seller.UpdateSellerStatusRequest;
 import com.bangvan.service.*;
@@ -26,9 +26,7 @@ public class AdminController {
 
     private final UserService userService;
     private final SellerService sellerService;
-
     private final OrderService orderService;
-    private final CategoryService categoryService;
 
     @GetMapping("/users")
     @Operation(summary = "Get All Users", description = "Endpoint for admins to get a paginated list of all users.")
@@ -63,7 +61,6 @@ public class AdminController {
         return new ResponseEntity<>(apiResponse, HttpStatus.OK);
     }
 
-
     @Operation(summary = "Delete User", description = "Delete User")
     @DeleteMapping("users/delete/{userId}")
     public ResponseEntity<ApiResponse> deleteUser(@PathVariable Long userId){
@@ -77,7 +74,6 @@ public class AdminController {
         ApiResponse apiResponse = ApiResponse.success(200, "User found successfully", userService.findUserById(userId));
         return new ResponseEntity<>(apiResponse, HttpStatus.OK);
     }
-
 
     @GetMapping("/sellers")
     @Operation(summary = "Get All Sellers", description = "Endpoint for admins to get a paginated list of all sellers.")
@@ -96,6 +92,25 @@ public class AdminController {
         return new ResponseEntity<>(apiResponse, HttpStatus.OK);
     }
 
+
+    @GetMapping("/sellers/pending")
+    @Operation(summary = "Get Pending Sellers", description = "Get list of sellers waiting for approval (PENDING_VERIFICATION).")
+    public ResponseEntity<ApiResponse> getPendingSellers(
+            @RequestParam(value= "pageNo", defaultValue = "1", required = false) int pageNo,
+            @RequestParam(value = "pageSize", defaultValue = "10", required = false) int pageSize,
+            @RequestParam(value = "sortBy", defaultValue = "createdAt", required = false) String sortBy,
+            @RequestParam(value="sortDir", defaultValue = "ASC", required = false) String sortDir
+    ) {
+        Pageable pageable = PageRequest.of(pageNo - 1, pageSize, Sort.by(Sort.Direction.fromString(sortDir), sortBy));
+        ApiResponse apiResponse = ApiResponse.success(
+                HttpStatus.OK.value(),
+                "Pending sellers fetched successfully",
+                sellerService.getPendingSellers(pageable)
+        );
+        return new ResponseEntity<>(apiResponse, HttpStatus.OK);
+    }
+
+
     @GetMapping("/sellers/{sellerId}")
     @Operation(summary = "Find Seller By Id", description = "Endpoint for admins to find a specific seller by their ID.")
     public ResponseEntity<ApiResponse> findSellerById(@PathVariable Long sellerId){
@@ -108,18 +123,15 @@ public class AdminController {
     }
 
     @PutMapping("/sellers/{sellerId}/status")
-    @Operation(summary = "Update a Seller's Status", description = "Endpoint for admins to update a seller's account status (e.g., ACTIVE, SUSPENDED, BANNED).")
+    @Operation(summary = "Approve/Reject Seller", description = "Update seller status to ACTIVE (Approve) or DEACTIVATED/BANNED (Reject).")
     public ResponseEntity<ApiResponse> updateSellerStatus(
             @PathVariable Long sellerId,
-            @Valid @RequestBody UpdateSellerStatusRequest request) { // SỬ DỤNG DTO MỚI
+            @Valid @RequestBody UpdateSellerStatusRequest request) {
         ApiResponse apiResponse = ApiResponse.success(
                 HttpStatus.OK.value(),
                 "Seller status has been updated successfully",
-                sellerService.updateSellerStatus(sellerId, request) // GỌI SERVICE MỚI
+                sellerService.updateSellerStatus(sellerId, request)
         );
         return new ResponseEntity<>(apiResponse, HttpStatus.OK);
     }
-
-
-
 }

@@ -13,7 +13,7 @@ import com.bangvan.entity.User;
 import com.bangvan.exception.AppException;
 import com.bangvan.exception.ErrorCode;
 import com.bangvan.exception.ResourceNotFoundException;
-import com.bangvan.repository.AddressRepository; // <-- IMPORT MỚI
+import com.bangvan.repository.AddressRepository;
 import com.bangvan.repository.RoleRepository;
 import com.bangvan.repository.SellerRepository;
 import com.bangvan.repository.UserRepository;
@@ -28,35 +28,32 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.Principal;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class SellerServiceImpl implements SellerService {
 
-
     private final UserRepository userRepository;
     private final SellerRepository sellerRepository;
     private final ModelMapper modelMapper;
     private final RoleRepository roleRepository;
-    private final AddressRepository addressRepository; // <-- TIÊM REPOSITORY MỚI
-
+    private final AddressRepository addressRepository;
 
     private SellerResponse mapSellerToSellerResponse(Seller seller) {
-
         SellerResponse sellerResponse = modelMapper.map(seller, SellerResponse.class);
         UserResponse userResponse = modelMapper.map(seller.getUser(), UserResponse.class);
         sellerResponse.setUser(userResponse);
-
         return sellerResponse;
     }
 
     @Override
     public SellerResponse getProfile(Principal principal){
         String username = principal.getName();
-        Seller seller = sellerRepository.findByUser_UsernameAndUser_EnabledIsTrue(username).orElseThrow(() -> new ResourceNotFoundException("seller", "sellerId", username));
-
-
+        Seller seller = sellerRepository.findByUser_UsernameAndUser_EnabledIsTrue(username)
+                .orElseThrow(() -> new ResourceNotFoundException("seller", "username", username));
         return mapSellerToSellerResponse(seller);
     }
 
@@ -64,80 +61,71 @@ public class SellerServiceImpl implements SellerService {
     @Override
     public SellerResponse becomeSeller(BecomeSellerRequest request, Principal principal){
         String username = principal.getName();
-        User user = userRepository.findByUsernameAndEnabledIsTrue(username).orElseThrow(() -> new ResourceNotFoundException("user", "userId", username));
+        User user = userRepository.findByUsernameAndEnabledIsTrue(username)
+                .orElseThrow(() -> new ResourceNotFoundException("user", "username", username));
+
         if(sellerRepository.existsById(user.getId())){
             throw new AppException(ErrorCode.SELLER_EXISTED);
         }
 
         Seller seller = new Seller();
         seller.setUser(user);
-
         seller.setBusinessDetails(request.getBusinessDetails());
         seller.setBankDetails(request.getBankDetails());
         seller.setGstin(request.getGstin());
+        seller.setAccountStatus(AccountStatus.PENDING_VERIFICATION);
 
-        // --- START FIX ---
-        // 1. Lấy đối tượng Address (transient/detached) từ request
+
         Address pickupAddress = request.getPickupAddress();
-
-        // 2. Gán User (managed) cho Address
         pickupAddress.setUser(user);
-
-        // 3. Chủ động lưu (persist hoặc merge) Address trước tiên.
-        //    Thao tác này biến pickupAddress thành một managed entity.
         Address managedPickupAddress = addressRepository.save(pickupAddress);
-
-        // 4. Gán managed Address cho Seller
         seller.setPickupAddress(managedPickupAddress);
-        // --- END FIX ---
 
 
-        Role sellerRole = roleRepository.findByName("ROLE_SELLER").orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
-        user.getRoles().add(sellerRole);
-        userRepository.save(user); // Lưu User (để cập nhật role)
 
-        // Lưu Seller. Giờ đây pickupAddress đã là managed entity,
-        // nên việc gán vào Seller (không còn cascade persist) là an toàn.
+
         seller = sellerRepository.save(seller);
-
+        log.info("User {} registered as seller. Status: PENDING_VERIFICATION", username);
 
         return mapSellerToSellerResponse(seller);
     }
-
 
     @Transactional
     @Override
     public SellerResponse updateSeller(UpdateSellerRequest request, Principal principal){
         String username = principal.getName();
-        Seller seller = sellerRepository.findByUser_UsernameAndUser_EnabledIsTrue(username).orElseThrow(() -> new ResourceNotFoundException("seller", "sellerId", username));
+        Seller seller = sellerRepository.findByUser_UsernameAndUser_EnabledIsTrue(username)
+                .orElseThrow(() -> new ResourceNotFoundException("seller", "username", username));
 
-        // --- CẬP NHẬT LOGIC UPDATE ĐỊA CHỈ (TƯƠNG TỰ NHƯ KHI TẠO MỚI) ---
-        // Lấy địa chỉ từ request
         Address pickupAddress = request.getPickupAddress();
-        // Đảm bảo user được gán (quan trọng nếu đây là địa chỉ mới)
         pickupAddress.setUser(seller.getUser());
-        // Lưu/Merge địa chỉ trước
         Address managedPickupAddress = addressRepository.save(pickupAddress);
 
         seller.setBusinessDetails(request.getBusinessDetails());
         seller.setBankDetails(request.getBankDetails());
-        // Gán địa chỉ đã được managed
         seller.setPickupAddress(managedPickupAddress);
         seller.setGstin(request.getGstin());
-        sellerRepository.save(seller);
 
-
-        return mapSellerToSellerResponse(seller);
+        Seller updatedSeller = sellerRepository.save(seller);
+        return mapSellerToSellerResponse(updatedSeller);
     }
 
     @Transactional
     @Override
     public String deleteSeller(Principal principal){
         String username = principal.getName();
-        Seller seller = sellerRepository.findByUser_UsernameAndUser_EnabledIsTrue(username).orElseThrow(() -> new ResourceNotFoundException("seller", "sellerId", username));
+        Seller seller = sellerRepository.findByUser_UsernameAndUser_EnabledIsTrue(username)
+                .orElseThrow(() -> new ResourceNotFoundException("seller", "username", username));
 
-        // Cân nhắc: Xử lý logic dọn dẹp (vd: xóa địa chỉ pickupAddress nếu nó không được dùng ở đâu khác?)
-        // Tạm thời chỉ xóa seller
+
+        User user = seller.getUser();
+        Role sellerRole = roleRepository.findByName("ROLE_SELLER")
+                .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
+
+        if (user.getRoles().contains(sellerRole)) {
+            user.getRoles().remove(sellerRole);
+            userRepository.save(user);
+        }
 
         sellerRepository.delete(seller);
         return "Delete seller successfully";
@@ -146,22 +134,20 @@ public class SellerServiceImpl implements SellerService {
     @Override
     public PageCustomResponse<SellerResponse> getAllSellers(Pageable pageable){
         Page<Seller> page = sellerRepository.findAll(pageable);
-        return PageCustomResponse.<SellerResponse>builder()
-                .pageNo(page.getNumber()+1)
-                .pageSize(page.getSize())
-                .totalPages(page.getTotalPages())
-                .totalElements(page.getTotalElements())
-
-                .pageContent(page.getContent().stream().map(this::mapSellerToSellerResponse).toList()).build();
+        return mapToPageResponse(page);
     }
 
+    @Override
+    public PageCustomResponse<SellerResponse> getPendingSellers(Pageable pageable) {
+        Page<Seller> page = sellerRepository.findByAccountStatus(AccountStatus.PENDING_VERIFICATION, pageable);
+        return mapToPageResponse(page);
+    }
 
     @Transactional(readOnly = true)
     @Override
     public SellerResponse findSellerById(Long sellerId) {
         Seller seller = sellerRepository.findById(sellerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Seller", "ID", sellerId));
-
         return mapSellerToSellerResponse(seller);
     }
 
@@ -172,10 +158,8 @@ public class SellerServiceImpl implements SellerService {
                 .orElseThrow(() -> new ResourceNotFoundException("Seller", "ID", sellerId));
 
         User user = seller.getUser();
-
         AccountStatus newStatus;
         try {
-
             newStatus = AccountStatus.valueOf(request.getStatus().toUpperCase());
         } catch (IllegalArgumentException e) {
             log.warn("Invalid status value provided: {}", request.getStatus());
@@ -184,16 +168,34 @@ public class SellerServiceImpl implements SellerService {
 
 
         seller.setAccountStatus(newStatus);
-        user.setAccountStatus(newStatus);
 
 
+        Role sellerRole = roleRepository.findByName("ROLE_SELLER")
+                .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
+
+        Set<Role> userRoles = user.getRoles();
 
         if (newStatus == AccountStatus.ACTIVE) {
+
+            if (!userRoles.contains(sellerRole)) {
+                userRoles.add(sellerRole);
+                log.info("Granted ROLE_SELLER to user {}", user.getUsername());
+            }
             user.setEnabled(true);
-        } else {
-            user.setEnabled(false);
+        } else if (newStatus == AccountStatus.BANNED || newStatus == AccountStatus.DEACTIVATED || newStatus == AccountStatus.CLOSED) {
+
+            if (userRoles.contains(sellerRole)) {
+                userRoles.remove(sellerRole);
+                log.info("Revoked ROLE_SELLER from user {}", user.getUsername());
+            }
+            if (newStatus == AccountStatus.BANNED) {
+                user.setEnabled(false);
+            }
         }
 
+
+        user.setAccountStatus(newStatus);
+        user.setRoles(userRoles);
 
         userRepository.save(user);
         Seller updatedSeller = sellerRepository.save(seller);
@@ -201,4 +203,13 @@ public class SellerServiceImpl implements SellerService {
         return mapSellerToSellerResponse(updatedSeller);
     }
 
+    private PageCustomResponse<SellerResponse> mapToPageResponse(Page<Seller> page) {
+        return PageCustomResponse.<SellerResponse>builder()
+                .pageNo(page.getNumber() + 1)
+                .pageSize(page.getSize())
+                .totalPages(page.getTotalPages())
+                .totalElements(page.getTotalElements())
+                .pageContent(page.getContent().stream().map(this::mapSellerToSellerResponse).toList())
+                .build();
+    }
 }
