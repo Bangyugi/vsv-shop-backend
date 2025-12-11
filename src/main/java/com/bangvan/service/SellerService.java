@@ -30,4 +30,6 @@ public interface SellerService {
 
     @Transactional
     SellerResponse updateSellerStatus(Long sellerId, UpdateSellerStatusRequest request);
+
+    PageCustomResponse<SellerResponse> getPendingSellers(Pageable pageable);
 }

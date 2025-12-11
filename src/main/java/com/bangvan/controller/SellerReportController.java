@@ -23,12 +23,24 @@ public class SellerReportController {
 
     @GetMapping("/seller/my-report")
     @PreAuthorize("hasRole('SELLER')")
-    @Operation(summary = "Get current seller's report", description = "Endpoint for a seller to retrieve their sales and earnings report.")
+    @Operation(summary = "Get current seller's report (Basic)", description = "Endpoint for a seller to retrieve their sales and earnings report (Snapshot data).")
     public ResponseEntity<ApiResponse> getMySellerReport(Principal principal) {
         ApiResponse apiResponse = ApiResponse.success(
                 HttpStatus.OK.value(),
                 "Seller report fetched successfully",
                 sellerReportService.getMySellerReport(principal)
+        );
+        return new ResponseEntity<>(apiResponse, HttpStatus.OK);
+    }
+
+    @GetMapping("/seller/dashboard")
+    @PreAuthorize("hasRole('SELLER')")
+    @Operation(summary = "Get Seller Dashboard Data", description = "Get real-time metrics for seller dashboard (Revenue, Orders, Stock, Chart).")
+    public ResponseEntity<ApiResponse> getSellerDashboard(Principal principal) {
+        ApiResponse apiResponse = ApiResponse.success(
+                HttpStatus.OK.value(),
+                "Dashboard data fetched successfully",
+                sellerReportService.getSellerDashboard(principal)
         );
         return new ResponseEntity<>(apiResponse, HttpStatus.OK);
     }

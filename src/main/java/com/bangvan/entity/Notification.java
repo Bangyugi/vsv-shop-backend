@@ -29,8 +29,5 @@ public class Notification extends AbstractEntity {
     @Column(name = "is_read", nullable = false)
     boolean isRead = false;
 
-    /**
-     * Một liên kết tùy chọn (ví dụ: /orders/uuid/...) để khi người dùng nhấp vào thông báo.
-     */
     String link;
 }

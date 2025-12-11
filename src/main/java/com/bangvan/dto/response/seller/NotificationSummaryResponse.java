@@ -8,13 +8,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class NotificationSummaryResponse {
-    /**
-     * Số lượng thông báo chưa đọc.
-     */
+
     private long unreadCount;
 
-    /**
-     * Tổng số thông báo.
-     */
     private long totalCount;
 }

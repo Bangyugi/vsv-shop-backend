@@ -5,12 +5,12 @@ import com.bangvan.dto.request.order.CreateOrderRequest;
 import com.bangvan.dto.response.PageCustomResponse;
 import com.bangvan.dto.response.order.OrderItemResponse;
 import com.bangvan.dto.response.order.OrderResponse;
-import com.bangvan.dto.response.product.ProductResponse;
 import com.bangvan.entity.*;
 import com.bangvan.exception.AppException;
 import com.bangvan.exception.ErrorCode;
 import com.bangvan.exception.ResourceNotFoundException;
 import com.bangvan.repository.*;
+import com.bangvan.service.NotificationService;
 import com.bangvan.service.OrderService;
 import com.bangvan.utils.OrderStatus;
 import com.bangvan.utils.PaymentMethod;
@@ -43,6 +43,9 @@ public class OrderServiceImpl implements OrderService {
     private final ProductVariantRepository productVariantRepository;
     private final PaymentOrderRepository paymentOrderRepository;
 
+
+    private final NotificationService notificationService;
+
     private OrderResponse mapOrderToOrderResponse(Order order) {
         OrderResponse orderResponse = modelMapper.map(order, OrderResponse.class);
         List<OrderItemResponse> orderItemResponses = order.getOrderItems().stream()
@@ -58,14 +61,11 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public OrderResponse findOrderByOrderIdString(String orderId, Principal principal) {
-
         Order order = orderRepository.findByOrderId(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order", "OrderIdString", orderId));
 
-
         User user = userRepository.findByUsername(principal.getName())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "username", principal.getName()));
-
 
         boolean isAdmin = user.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
@@ -79,11 +79,9 @@ public class OrderServiceImpl implements OrderService {
             isSeller = order.getSeller().getId().equals(sellerOpt.get().getId());
         }
 
-
         if (!isAdmin && !isBuyer && !isSeller) {
             throw new AppException(ErrorCode.ACCESS_DENIED, "You do not have permission to view this order.");
         }
-
 
         return mapOrderToOrderResponse(order);
     }
@@ -139,13 +137,10 @@ public class OrderServiceImpl implements OrderService {
         for (Map.Entry<Seller, List<CartItem>> entry : itemsBySeller.entrySet()) {
             Seller seller = entry.getKey();
 
-
-
             if (seller.getId().equals(user.getId())) {
                 log.warn("User (Seller ID: {}) attempted to order their own product.", user.getId());
                 throw new AppException(ErrorCode.ACCESS_DENIED, "Sellers cannot purchase their own products. Product from seller ID " + seller.getId() + " is in your cart.");
             }
-
 
             List<CartItem> sellerCartItems = entry.getValue();
 
@@ -171,12 +166,8 @@ public class OrderServiceImpl implements OrderService {
 
                 variant.setQuantity(variant.getQuantity() - requestedQuantity);
 
-
                 int currentSold = (variant.getSold() != null) ? variant.getSold() : 0;
                 variant.setSold(currentSold + requestedQuantity);
-                log.info("Updating stock for variant ID {}: quantity = {}, sold = {}", variant.getId(), variant.getQuantity(), variant.getSold());
-
-
                 productVariantRepository.save(variant);
 
                 OrderItem orderItem = new OrderItem();
@@ -206,6 +197,17 @@ public class OrderServiceImpl implements OrderService {
             order.setPaymentOrder(paymentOrder);
             Order savedOrder = orderRepository.save(order);
             newOrders.add(savedOrder);
+
+
+
+            String sellerMsg = "Bạn có đơn hàng mới #" + savedOrder.getOrderId() + " từ " + user.getUsername();
+            String sellerLink = "/seller/orders/" + savedOrder.getOrderId();
+            notificationService.sendNotificationToSeller(seller, sellerMsg, sellerLink);
+
+
+            String adminMsg = "Hệ thống có đơn hàng mới #" + savedOrder.getOrderId();
+            notificationService.sendNotificationToAdmin(adminMsg, "/admin/orders/" + savedOrder.getOrderId());
+
         }
 
         cart.getCartItems().clear();
@@ -225,7 +227,6 @@ public class OrderServiceImpl implements OrderService {
 
         User user = userRepository.findByUsername(principal.getName())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "username", principal.getName()));
-
 
         boolean isAdmin = user.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
@@ -256,7 +257,6 @@ public class OrderServiceImpl implements OrderService {
                 .map(order -> mapOrderToOrderResponse(order))
                 .collect(Collectors.toList());
     }
-
 
     @Override
     public PageCustomResponse<OrderResponse> findUserOrderHistory(Principal principal, Pageable pageable) {
@@ -320,14 +320,23 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
+        OrderStatus newStatus;
         try {
-            OrderStatus newStatus = OrderStatus.valueOf(status.toUpperCase());
+            newStatus = OrderStatus.valueOf(status.toUpperCase());
             order.setOrderStatus(newStatus);
         } catch (IllegalArgumentException e) {
             throw new AppException(ErrorCode.INVALID_INPUT);
         }
 
         Order updatedOrder = orderRepository.save(order);
+
+
+
+        String msg = "Đơn hàng #" + order.getOrderId() + " của bạn đã chuyển sang trạng thái: " + newStatus.name();
+        String link = "/user/orders/" + order.getOrderId();
+        notificationService.sendNotificationToUser(order.getUser(), msg, link);
+
+
         return mapOrderToOrderResponse(updatedOrder);
     }
 
@@ -347,7 +356,6 @@ public class OrderServiceImpl implements OrderService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "username", username));
 
-
         Order order = orderRepository.findByOrderId(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order", "OrderIdString", orderId));
 
@@ -361,23 +369,24 @@ public class OrderServiceImpl implements OrderService {
 
         order.setOrderStatus(OrderStatus.CANCELLED);
 
-
         for (OrderItem item : order.getOrderItems()) {
             ProductVariant variant = item.getVariant();
             variant.setQuantity(variant.getQuantity() + item.getQuantity());
 
-
             int currentSold = (variant.getSold() != null) ? variant.getSold() : 0;
-
             variant.setSold(Math.max(0, currentSold - item.getQuantity()));
-            log.info("Restoring stock for variant ID {}: quantity = {}, sold = {}", variant.getId(), variant.getQuantity(), variant.getSold());
-
-
             productVariantRepository.save(variant);
         }
 
         Order cancelledOrder = orderRepository.save(order);
+
+
+
+        String msg = "Người mua đã hủy đơn hàng #" + order.getOrderId();
+        String link = "/seller/orders/" + order.getOrderId();
+        notificationService.sendNotificationToSeller(order.getSeller(), msg, link);
+
+
         return mapOrderToOrderResponse(cancelledOrder);
     }
-
 }

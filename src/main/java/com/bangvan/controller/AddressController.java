@@ -20,7 +20,7 @@ import java.security.Principal;
 @RequiredArgsConstructor
 @Tag(name = "Address", description = "User Address Management API")
 @Slf4j
-@PreAuthorize("isAuthenticated()") // Yêu cầu xác thực cho tất cả các endpoint trong controller này
+@PreAuthorize("isAuthenticated()")
 public class AddressController {
 
     private final AddressService addressService;
@@ -84,7 +84,7 @@ public class AddressController {
         ApiResponse apiResponse = ApiResponse.success(
                 HttpStatus.OK.value(),
                 "Address deleted successfully",
-                null // Không có dữ liệu trả về khi xóa thành công
+                null
         );
         return new ResponseEntity<>(apiResponse, HttpStatus.OK);
     }
