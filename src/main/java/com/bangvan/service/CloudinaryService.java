@@ -27,7 +27,7 @@ public class CloudinaryService implements FileStorageService {
             if (file.isEmpty()) {
                 throw new AppException(ErrorCode.INVALID_INPUT, "Failed to store empty file.");
             }
-            // Kiểm tra định dạng ảnh
+
             if (!isImage(file)) {
                 throw new AppException(ErrorCode.INVALID_INPUT, "Only image files are allowed.");
             }
@@ -36,7 +36,7 @@ public class CloudinaryService implements FileStorageService {
             Map uploadResult = cloudinary.uploader().upload(file.getBytes(),
                     ObjectUtils.asMap(
                             "public_id", publicId,
-                            "resource_type", "auto" // Tự động nhận diện ảnh/video
+                            "resource_type", "auto"
                     ));
 
             String url = (String) uploadResult.get("secure_url");
@@ -52,7 +52,7 @@ public class CloudinaryService implements FileStorageService {
     @Override
     public void deleteFile(String fileUrl) {
         try {
-            // Lấy publicId từ URL (đây là logic đơn giản, cần cải thiện nếu cấu trúc URL phức tạp)
+
             String publicId = extractPublicIdFromUrl(fileUrl);
             if (publicId != null) {
                 cloudinary.uploader().destroy(publicId, ObjectUtils.emptyMap());
@@ -60,7 +60,7 @@ public class CloudinaryService implements FileStorageService {
             }
         } catch (IOException e) {
             log.error("Failed to delete file from Cloudinary", e);
-            // Không ném lỗi để tránh rollback transaction chính nếu xóa ảnh thất bại (chỉ log lại)
+
         }
     }
 
@@ -70,8 +70,8 @@ public class CloudinaryService implements FileStorageService {
     }
 
     private String extractPublicIdFromUrl(String url) {
-        // Example: https://res.cloudinary.com/demo/image/upload/v1570979139/sample.jpg
-        // Logic này cần test kỹ với URL thực tế của Cloudinary account
+
+
         try {
             int lastSlashIndex = url.lastIndexOf('/');
             int lastDotIndex = url.lastIndexOf('.');

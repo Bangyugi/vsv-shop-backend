@@ -5,7 +5,7 @@ import com.bangvan.service.impl.CustomUserDetailService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod; // Đã có
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -22,7 +22,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.header.writers.StaticHeadersWriter;
-// *** THÊM CÁC IMPORT ĐỂ XỬ LÝ MATCHER ***
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -30,7 +29,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
-import java.util.stream.Collectors; // <-- THÊM IMPORT
+import java.util.stream.Collectors;
 
 @Configuration
 @EnableWebSecurity
@@ -53,7 +52,8 @@ public class SecurityConfig {
             "/api/payments/vnpay-callback",
             "/api/home",
             "/hello",
-            "/api/uploads/**"
+            "/api/uploads/**",
+            "/ws/**"
     };
 
     private static final String[] PUBLIC_GET_ENDPOINTS = new String[]{
@@ -132,20 +132,20 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         org.springframework.web.cors.CorsConfiguration corsConfiguration = new org.springframework.web.cors.CorsConfiguration();
-        // Cho phép origin cụ thể (thay đổi thành origin frontend của bạn)
+
         corsConfiguration.setAllowedOrigins(List.of("http://localhost:5173"));
-        // Các HTTP methods được phép
-        corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")); // Thêm PATCH nếu dùng
-        // Các HTTP headers được phép gửi lên
-        corsConfiguration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Requested-With", "Origin")); // Bổ sung Origin, X-Requested-With
-        // Các HTTP headers được phép client đọc
+
+        corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+
+        corsConfiguration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Requested-With", "Origin"));
+
         corsConfiguration.setExposedHeaders(List.of("Authorization", "Content-Type"));
-        // Cho phép gửi cookie/credentials
+
         corsConfiguration.setAllowCredentials(true);
-        // Thời gian pre-flight request được cache (giây)
+
         corsConfiguration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        // Áp dụng cấu hình CORS này cho tất cả các đường dẫn
+
         source.registerCorsConfiguration("/**", corsConfiguration);
 
         return source;

@@ -3,7 +3,7 @@ package com.bangvan.config;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule; // Cần thêm dependency này
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
@@ -24,7 +24,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
-@EnableCaching // Kích hoạt Annotation Caching
+@EnableCaching
 public class RedisConfig {
 
     @Value("${app.redis.port}")
@@ -47,12 +47,12 @@ public class RedisConfig {
         return new LettuceConnectionFactory(configuration);
     }
 
-    // Cấu hình CacheManager cho @Cacheable
+
     @Bean
     public CacheManager cacheManager(RedisConnectionFactory redisConnectionFactory) {
-        // Cấu hình ObjectMapper để serialize JSON (xử lý LocalDateTime và class type)
+
         ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.registerModule(new JavaTimeModule()); // Xử lý Java 8 Time API
+        objectMapper.registerModule(new JavaTimeModule());
         objectMapper.activateDefaultTyping(
                 LaissezFaireSubTypeValidator.instance,
                 ObjectMapper.DefaultTyping.NON_FINAL,
@@ -62,15 +62,15 @@ public class RedisConfig {
         GenericJackson2JsonRedisSerializer serializer = new GenericJackson2JsonRedisSerializer(objectMapper);
 
         RedisCacheConfiguration defaultCacheConfig = RedisCacheConfiguration.defaultCacheConfig()
-                .entryTtl(Duration.ofMinutes(10)) // TTL mặc định 10 phút
+                .entryTtl(Duration.ofMinutes(10))
                 .disableCachingNullValues()
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(serializer));
 
-        // Cấu hình TTL riêng cho từng Cache Name
+
         Map<String, RedisCacheConfiguration> cacheConfigurations = new HashMap<>();
-           cacheConfigurations.put("productDetails", defaultCacheConfig.entryTtl(Duration.ofHours(1))); // Sản phẩm cache 1h
-        cacheConfigurations.put("categories", defaultCacheConfig.entryTtl(Duration.ofHours(24))); // Danh mục cache 1 ngày
+           cacheConfigurations.put("productDetails", defaultCacheConfig.entryTtl(Duration.ofHours(1)));
+        cacheConfigurations.put("categories", defaultCacheConfig.entryTtl(Duration.ofHours(24)));
 
         return RedisCacheManager.builder(redisConnectionFactory)
                 .cacheDefaults(defaultCacheConfig)
@@ -78,7 +78,7 @@ public class RedisConfig {
                 .build();
     }
 
-    // Giữ lại RedisTemplate cũ của bạn cho các tác vụ thủ công (OTP)
+
     @Bean
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
         RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();
