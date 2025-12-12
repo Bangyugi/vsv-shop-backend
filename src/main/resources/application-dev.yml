@@ -54,7 +54,7 @@ openapi:
 app:
   jwt:
     secret: d23507c6beedda00c5c65a1f0edfafea5adbbcbaa3a6225213542cfb16a914f6
-    expiration-milliseconds: 60000
+    expiration-milliseconds: 3600000
     refresh-expiration-milliseconds: 604800000
   redis:
     port: 6379

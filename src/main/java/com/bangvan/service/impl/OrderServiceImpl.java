@@ -1,6 +1,5 @@
 package com.bangvan.service.impl;
 
-
 import com.bangvan.dto.request.order.CreateOrderRequest;
 import com.bangvan.dto.response.PageCustomResponse;
 import com.bangvan.dto.response.order.OrderItemResponse;
@@ -199,14 +198,14 @@ public class OrderServiceImpl implements OrderService {
             newOrders.add(savedOrder);
 
 
-
+            // UPDATED: Link for Seller (General list view as per requirement)
             String sellerMsg = "Bạn có đơn hàng mới #" + savedOrder.getOrderId() + " từ " + user.getUsername();
-            String sellerLink = "/seller/orders/" + savedOrder.getOrderId();
+            String sellerLink = "/seller/orders";
             notificationService.sendNotificationToSeller(seller, sellerMsg, sellerLink);
 
-
+            // UPDATED: Link for Admin (General list view as per requirement)
             String adminMsg = "Hệ thống có đơn hàng mới #" + savedOrder.getOrderId();
-            notificationService.sendNotificationToAdmin(adminMsg, "/admin/orders/" + savedOrder.getOrderId());
+            notificationService.sendNotificationToAdmin(adminMsg, "/admin/orders");
 
         }
 
@@ -331,9 +330,9 @@ public class OrderServiceImpl implements OrderService {
         Order updatedOrder = orderRepository.save(order);
 
 
-
+        // UPDATED: Link for User/Buyer (Changed /user/orders/ to /profile/orders/)
         String msg = "Đơn hàng #" + order.getOrderId() + " của bạn đã chuyển sang trạng thái: " + newStatus.name();
-        String link = "/user/orders/" + order.getOrderId();
+        String link = "/profile/orders/" + order.getOrderId();
         notificationService.sendNotificationToUser(order.getUser(), msg, link);
 
 
@@ -381,9 +380,9 @@ public class OrderServiceImpl implements OrderService {
         Order cancelledOrder = orderRepository.save(order);
 
 
-
+        // UPDATED: Link for Seller (General list view as per requirement)
         String msg = "Người mua đã hủy đơn hàng #" + order.getOrderId();
-        String link = "/seller/orders/" + order.getOrderId();
+        String link = "/seller/orders";
         notificationService.sendNotificationToSeller(order.getSeller(), msg, link);
 
 
