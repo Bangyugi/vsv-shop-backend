@@ -4,6 +4,8 @@ import com.bangvan.dto.request.order.CreateOrderRequest;
 import com.bangvan.dto.response.PageCustomResponse;
 import com.bangvan.dto.response.order.OrderItemResponse;
 import com.bangvan.dto.response.order.OrderResponse;
+
+import com.bangvan.dto.ws.SocketMessage;
 import com.bangvan.entity.*;
 import com.bangvan.exception.AppException;
 import com.bangvan.exception.ErrorCode;
@@ -13,11 +15,13 @@ import com.bangvan.service.NotificationService;
 import com.bangvan.service.OrderService;
 import com.bangvan.utils.OrderStatus;
 import com.bangvan.utils.PaymentMethod;
+import com.bangvan.utils.SocketEventType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,9 +46,10 @@ public class OrderServiceImpl implements OrderService {
     private final ProductVariantRepository productVariantRepository;
     private final PaymentOrderRepository paymentOrderRepository;
 
-
     private final NotificationService notificationService;
+    private final SimpMessagingTemplate messagingTemplate;
 
+    // Helper method để map entity sang response
     private OrderResponse mapOrderToOrderResponse(Order order) {
         OrderResponse orderResponse = modelMapper.map(order, OrderResponse.class);
         List<OrderItemResponse> orderItemResponses = order.getOrderItems().stream()
@@ -56,6 +61,19 @@ public class OrderServiceImpl implements OrderService {
                 .collect(Collectors.toList());
         orderResponse.setOrderItems(orderItemResponses);
         return orderResponse;
+    }
+
+    // Helper method để gửi WebSocket message chuẩn hóa
+    private void sendRealtimeUpdate(String username, SocketEventType eventType, OrderResponse payload) {
+        SocketMessage<OrderResponse> message = SocketMessage.of(eventType, payload);
+        // Gửi đến user cụ thể tại destination /queue/updates
+        // Client sẽ subscribe tại: /user/queue/updates
+        messagingTemplate.convertAndSendToUser(
+                username,
+                "/queue/updates",
+                message
+        );
+        log.info("WebSocket sent [{}] to user: {}", eventType, username);
     }
 
     @Override
@@ -84,7 +102,6 @@ public class OrderServiceImpl implements OrderService {
 
         return mapOrderToOrderResponse(order);
     }
-
 
     @Override
     public PageCustomResponse<OrderResponse> findAllOrders(Pageable pageable) {
@@ -155,16 +172,18 @@ public class OrderServiceImpl implements OrderService {
             BigDecimal totalPriceForSeller = BigDecimal.ZERO;
             int totalItemForSeller = 0;
 
+            // Xử lý kho hàng và lock sản phẩm
             for (CartItem cartItem : sellerCartItems) {
                 ProductVariant variant = cartItem.getVariant();
                 int requestedQuantity = cartItem.getQuantity();
+
+                // Logic check stock cơ bản
                 if (variant.getQuantity() < requestedQuantity) {
                     throw new AppException(ErrorCode.PRODUCT_OUT_OF_STOCK,
                             "Not enough stock for SKU " + variant.getSku() + ". Only " + variant.getQuantity() + " left.");
                 }
 
                 variant.setQuantity(variant.getQuantity() - requestedQuantity);
-
                 int currentSold = (variant.getSold() != null) ? variant.getSold() : 0;
                 variant.setSold(currentSold + requestedQuantity);
                 productVariantRepository.save(variant);
@@ -175,7 +194,6 @@ public class OrderServiceImpl implements OrderService {
                 orderItem.setPriceAtPurchase(cartItem.getPrice());
                 orderItem.setSellingPriceAtPurchase(cartItem.getSellingPrice());
                 orderItem.setOrder(order);
-
                 orderItem.setVariantSku(variant.getSku());
                 orderItem.setColor(variant.getColor());
                 orderItem.setSize(variant.getSize());
@@ -185,30 +203,40 @@ public class OrderServiceImpl implements OrderService {
                 totalPriceForSeller = totalPriceForSeller.add(cartItem.getSellingPrice());
                 totalItemForSeller += requestedQuantity;
             }
+
             order.setTotalPrice(totalPriceForSeller);
             order.setTotalItem(totalItemForSeller);
             order.setOrderItems(orderItems);
+
             PaymentOrder paymentOrder = new PaymentOrder();
             paymentOrder.setAmount(totalPriceForSeller);
             paymentOrder.setPaymentMethod(PaymentMethod.VNPAY);
             paymentOrder.setUser(user);
             paymentOrder = paymentOrderRepository.save(paymentOrder);
+
             order.setPaymentOrder(paymentOrder);
             Order savedOrder = orderRepository.save(order);
             newOrders.add(savedOrder);
 
-
-            // UPDATED: Link for Seller (General list view as per requirement)
+            // 1. Gửi Notification (Lưu vào DB)
             String sellerMsg = "Bạn có đơn hàng mới #" + savedOrder.getOrderId() + " từ " + user.getUsername();
             String sellerLink = "/seller/orders";
             notificationService.sendNotificationToSeller(seller, sellerMsg, sellerLink);
 
-            // UPDATED: Link for Admin (General list view as per requirement)
+            // 2. Gửi Realtime WebSocket cho Seller
+            OrderResponse responseForSeller = mapOrderToOrderResponse(savedOrder);
+            sendRealtimeUpdate(
+                    seller.getUser().getUsername(),
+                    SocketEventType.SELLER_NEW_ORDER,
+                    responseForSeller
+            );
+
+            // Notification cho Admin
             String adminMsg = "Hệ thống có đơn hàng mới #" + savedOrder.getOrderId();
             notificationService.sendNotificationToAdmin(adminMsg, "/admin/orders");
-
         }
 
+        // Xóa cart sau khi đặt hàng thành công
         cart.getCartItems().clear();
         cart.setTotalItem(0);
         cart.setTotalSellingPrice(null);
@@ -253,7 +281,7 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", "username", username));
         List<Order> orders = orderRepository.findAllByUser(user);
         return orders.stream()
-                .map(order -> mapOrderToOrderResponse(order))
+                .map(this::mapOrderToOrderResponse)
                 .collect(Collectors.toList());
     }
 
@@ -264,7 +292,7 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", "username", username));
         Page<Order> orderPage = orderRepository.findByUserAndOrderStatus(user, OrderStatus.DELIVERED, pageable);
         List<OrderResponse> orderResponses = orderPage.getContent().stream()
-                .map(order -> mapOrderToOrderResponse(order))
+                .map(this::mapOrderToOrderResponse)
                 .collect(Collectors.toList());
         return PageCustomResponse.<OrderResponse>builder()
                 .pageNo(orderPage.getNumber() + 1)
@@ -284,7 +312,7 @@ public class OrderServiceImpl implements OrderService {
         Page<Order> orderPage = orderRepository.findBySeller(seller, pageable);
 
         List<OrderResponse> orderResponses = orderPage.getContent().stream()
-                .map(order -> mapOrderToOrderResponse(order))
+                .map(this::mapOrderToOrderResponse)
                 .collect(Collectors.toList());
 
         return PageCustomResponse.<OrderResponse>builder()
@@ -322,21 +350,31 @@ public class OrderServiceImpl implements OrderService {
         OrderStatus newStatus;
         try {
             newStatus = OrderStatus.valueOf(status.toUpperCase());
-            order.setOrderStatus(newStatus);
         } catch (IllegalArgumentException e) {
             throw new AppException(ErrorCode.INVALID_INPUT);
         }
 
+        // Cập nhật status
+        // Nhờ @Version trong Entity, nếu Buyer cancel cùng lúc Seller update,
+        // JPA sẽ ném ObjectOptimisticLockingFailureException ở cuối transaction
+        order.setOrderStatus(newStatus);
+
         Order updatedOrder = orderRepository.save(order);
+        OrderResponse response = mapOrderToOrderResponse(updatedOrder);
 
-
-        // UPDATED: Link for User/Buyer (Changed /user/orders/ to /profile/orders/)
+        // 1. Notification Database
         String msg = "Đơn hàng #" + order.getOrderId() + " của bạn đã chuyển sang trạng thái: " + newStatus.name();
         String link = "/profile/orders/" + order.getOrderId();
         notificationService.sendNotificationToUser(order.getUser(), msg, link);
 
+        // 2. Realtime WebSocket cho Buyer
+        sendRealtimeUpdate(
+                order.getUser().getUsername(),
+                SocketEventType.BUYER_ORDER_UPDATE,
+                response
+        );
 
-        return mapOrderToOrderResponse(updatedOrder);
+        return response;
     }
 
     @Transactional
@@ -362,30 +400,49 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
-        if (order.getOrderStatus() != OrderStatus.PENDING && order.getOrderStatus() != OrderStatus.PROCESSING) {
+        Set<OrderStatus> cancellableStatuses = Set.of(
+                OrderStatus.PENDING,
+                // OrderStatus.PROCESSING, // Tùy business logic
+                OrderStatus.CONFIRMED
+        );
+
+        if (!cancellableStatuses.contains(order.getOrderStatus())) {
+            log.warn("User {} attempted to cancel order {} with status {}. Cancellation not allowed.",
+                    username, orderId, order.getOrderStatus());
             throw new AppException(ErrorCode.ORDER_CANCELLATION_NOT_ALLOWED);
         }
 
         order.setOrderStatus(OrderStatus.CANCELLED);
 
+        // Hoàn trả tồn kho
         for (OrderItem item : order.getOrderItems()) {
             ProductVariant variant = item.getVariant();
-            variant.setQuantity(variant.getQuantity() + item.getQuantity());
 
+            // Nên thêm logic Optimistic lock cho ProductVariant nếu cần thiết ở đây
+            // Tuy nhiên, logic hiện tại tập trung vào Race condition của Order status
+
+            variant.setQuantity(variant.getQuantity() + item.getQuantity());
             int currentSold = (variant.getSold() != null) ? variant.getSold() : 0;
             variant.setSold(Math.max(0, currentSold - item.getQuantity()));
             productVariantRepository.save(variant);
         }
 
+        // Save order -> Check version -> Commit
         Order cancelledOrder = orderRepository.save(order);
+        OrderResponse response = mapOrderToOrderResponse(cancelledOrder);
 
-
-        // UPDATED: Link for Seller (General list view as per requirement)
+        // 1. Notification Database
         String msg = "Người mua đã hủy đơn hàng #" + order.getOrderId();
         String link = "/seller/orders";
         notificationService.sendNotificationToSeller(order.getSeller(), msg, link);
 
+        // 2. Realtime WebSocket cho Seller
+        sendRealtimeUpdate(
+                order.getSeller().getUser().getUsername(),
+                SocketEventType.SELLER_ORDER_CANCELLED,
+                response
+        );
 
-        return mapOrderToOrderResponse(cancelledOrder);
+        return response;
     }
 }
