@@ -1,9 +1,7 @@
 spring:
   main:
     allow-bean-definition-overriding: true
-#  config:
-#    activate:
-#      on-profile: prod
+
   devtools:
     add-properties: true
   datasource:
