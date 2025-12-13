@@ -13,6 +13,7 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
@@ -44,7 +45,13 @@ public class RedisConfig {
         if (password != null && !password.isEmpty()) {
             configuration.setPassword(password);
         }
-        return new LettuceConnectionFactory(configuration);
+
+        // THÊM ĐOẠN NÀY ĐỂ BẬT SSL (Quan trọng cho Upstash)
+        LettuceClientConfiguration clientConfig = LettuceClientConfiguration.builder()
+                .useSsl()
+                .build();
+
+        return new LettuceConnectionFactory(configuration, clientConfig);
     }
 
 
