@@ -4,7 +4,6 @@ import com.bangvan.dto.request.order.CreateOrderRequest;
 import com.bangvan.dto.response.PageCustomResponse;
 import com.bangvan.dto.response.order.OrderItemResponse;
 import com.bangvan.dto.response.order.OrderResponse;
-
 import com.bangvan.dto.ws.SocketMessage;
 import com.bangvan.entity.*;
 import com.bangvan.exception.AppException;
@@ -63,17 +62,40 @@ public class OrderServiceImpl implements OrderService {
         return orderResponse;
     }
 
-    // Helper method để gửi WebSocket message chuẩn hóa
-    private void sendRealtimeUpdate(String username, SocketEventType eventType, OrderResponse payload) {
-        SocketMessage<OrderResponse> message = SocketMessage.of(eventType, payload);
-        // Gửi đến user cụ thể tại destination /queue/updates
-        // Client sẽ subscribe tại: /user/queue/updates
-        messagingTemplate.convertAndSendToUser(
-                username,
-                "/queue/updates",
-                message
-        );
-        log.info("WebSocket sent [{}] to user: {}", eventType, username);
+    /**
+     * Gửi WebSocket message đến user cụ thể (Buyer/Seller)
+     * Destination: /user/{username}/queue/updates
+     */
+    private void sendRealtimeUpdateToUser(String username, SocketEventType eventType, OrderResponse payload) {
+        try {
+            SocketMessage<OrderResponse> message = SocketMessage.of(eventType, payload);
+            messagingTemplate.convertAndSendToUser(
+                    username,
+                    "/queue/updates",
+                    message
+            );
+            log.info("WebSocket sent [{}] to user: {}", eventType, username);
+        } catch (Exception e) {
+            log.error("Failed to send WebSocket message to user {}: {}", username, e.getMessage());
+        }
+    }
+
+    /**
+     * Gửi WebSocket message đến Admin (Broadcast Topic)
+     * Destination: /topic/admin/orders
+     * Client Admin cần subscribe vào: /topic/admin/orders
+     */
+    private void sendRealtimeUpdateToAdmin(SocketEventType eventType, OrderResponse payload) {
+        try {
+            SocketMessage<OrderResponse> message = SocketMessage.of(eventType, payload);
+            messagingTemplate.convertAndSend(
+                    "/topic/admin/orders",
+                    message
+            );
+            log.info("WebSocket broadcast [{}] to ADMIN topic", eventType);
+        } catch (Exception e) {
+            log.error("Failed to send WebSocket message to Admin topic: {}", e.getMessage());
+        }
     }
 
     @Override
@@ -218,22 +240,27 @@ public class OrderServiceImpl implements OrderService {
             Order savedOrder = orderRepository.save(order);
             newOrders.add(savedOrder);
 
-            // 1. Gửi Notification (Lưu vào DB)
+            // 1. Gửi Notification (DB) cho Seller & Admin
             String sellerMsg = "Bạn có đơn hàng mới #" + savedOrder.getOrderId() + " từ " + user.getUsername();
-            String sellerLink = "/seller/orders";
-            notificationService.sendNotificationToSeller(seller, sellerMsg, sellerLink);
+            notificationService.sendNotificationToSeller(seller, sellerMsg, "/seller/orders");
 
-            // 2. Gửi Realtime WebSocket cho Seller
-            OrderResponse responseForSeller = mapOrderToOrderResponse(savedOrder);
-            sendRealtimeUpdate(
-                    seller.getUser().getUsername(),
-                    SocketEventType.SELLER_NEW_ORDER,
-                    responseForSeller
-            );
-
-            // Notification cho Admin
             String adminMsg = "Hệ thống có đơn hàng mới #" + savedOrder.getOrderId();
             notificationService.sendNotificationToAdmin(adminMsg, "/admin/orders");
+
+            OrderResponse responsePayload = mapOrderToOrderResponse(savedOrder);
+
+            // 2. Gửi WebSocket: Seller (Kênh riêng)
+            sendRealtimeUpdateToUser(
+                    seller.getUser().getUsername(),
+                    SocketEventType.SELLER_NEW_ORDER,
+                    responsePayload
+            );
+
+            // 3. Gửi WebSocket: Admin (Kênh chung - Realtime Dashboard)
+            sendRealtimeUpdateToAdmin(
+                    SocketEventType.ADMIN_NEW_ORDER,
+                    responsePayload
+            );
         }
 
         // Xóa cart sau khi đặt hàng thành công
@@ -275,14 +302,24 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public List<OrderResponse> findOrderByUser(Principal principal) {
+    public PageCustomResponse<OrderResponse> findOrderByUser(Principal principal, Pageable pageable) {
         String username = principal.getName();
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "username", username));
-        List<Order> orders = orderRepository.findAllByUser(user);
-        return orders.stream()
+
+        Page<Order> orderPage = orderRepository.findByUser(user, pageable);
+
+        List<OrderResponse> orderResponses = orderPage.getContent().stream()
                 .map(this::mapOrderToOrderResponse)
                 .collect(Collectors.toList());
+
+        return PageCustomResponse.<OrderResponse>builder()
+                .pageNo(orderPage.getNumber() + 1)
+                .pageSize(orderPage.getSize())
+                .totalPages(orderPage.getTotalPages())
+                .totalElements(orderPage.getTotalElements())
+                .pageContent(orderResponses)
+                .build();
     }
 
     @Override
@@ -338,6 +375,7 @@ public class OrderServiceImpl implements OrderService {
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(role -> role.equals("ROLE_ADMIN"));
 
+        // Kiểm tra quyền: Chỉ Admin hoặc Seller sở hữu đơn mới được update
         if (!isAdmin) {
             Seller seller = sellerRepository.findByUser_UsernameAndUser_EnabledIsTrue(username)
                     .orElseThrow(() -> new ResourceNotFoundException("Seller", "username", username));
@@ -354,9 +392,6 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_INPUT);
         }
 
-        // Cập nhật status
-        // Nhờ @Version trong Entity, nếu Buyer cancel cùng lúc Seller update,
-        // JPA sẽ ném ObjectOptimisticLockingFailureException ở cuối transaction
         order.setOrderStatus(newStatus);
 
         Order updatedOrder = orderRepository.save(order);
@@ -364,15 +399,26 @@ public class OrderServiceImpl implements OrderService {
 
         // 1. Notification Database
         String msg = "Đơn hàng #" + order.getOrderId() + " của bạn đã chuyển sang trạng thái: " + newStatus.name();
-        String link = "/profile/orders/" + order.getOrderId();
-        notificationService.sendNotificationToUser(order.getUser(), msg, link);
+        notificationService.sendNotificationToUser(order.getUser(), msg, "/profile/orders/" + order.getOrderId());
 
-        // 2. Realtime WebSocket cho Buyer
-        sendRealtimeUpdate(
+        // 2. Realtime WebSocket cho Buyer (Quan trọng: Buyer cần biết Admin/Seller đã update)
+        sendRealtimeUpdateToUser(
                 order.getUser().getUsername(),
                 SocketEventType.BUYER_ORDER_UPDATE,
                 response
         );
+
+        // 3. Nếu người thực hiện là Admin, có thể cũng cần update lại cho Seller biết
+        if (isAdmin) {
+            sendRealtimeUpdateToUser(
+                    order.getSeller().getUser().getUsername(),
+                    SocketEventType.SELLER_NEW_ORDER, // Hoặc tạo type SELLER_ORDER_UPDATE riêng nếu cần
+                    response
+            );
+        }
+
+        // 4. Update cho Admin dashboard (Sync giữa các admin)
+        sendRealtimeUpdateToAdmin(SocketEventType.ADMIN_ORDER_UPDATE, response);
 
         return response;
     }
@@ -402,7 +448,6 @@ public class OrderServiceImpl implements OrderService {
 
         Set<OrderStatus> cancellableStatuses = Set.of(
                 OrderStatus.PENDING,
-                // OrderStatus.PROCESSING, // Tùy business logic
                 OrderStatus.CONFIRMED
         );
 
@@ -414,12 +459,9 @@ public class OrderServiceImpl implements OrderService {
 
         order.setOrderStatus(OrderStatus.CANCELLED);
 
-        // Hoàn trả tồn kho
+        // Hoàn trả tồn kho (Race condition handling: database row lock on productVariant suggested for high load)
         for (OrderItem item : order.getOrderItems()) {
             ProductVariant variant = item.getVariant();
-
-            // Nên thêm logic Optimistic lock cho ProductVariant nếu cần thiết ở đây
-            // Tuy nhiên, logic hiện tại tập trung vào Race condition của Order status
 
             variant.setQuantity(variant.getQuantity() + item.getQuantity());
             int currentSold = (variant.getSold() != null) ? variant.getSold() : 0;
@@ -427,19 +469,24 @@ public class OrderServiceImpl implements OrderService {
             productVariantRepository.save(variant);
         }
 
-        // Save order -> Check version -> Commit
         Order cancelledOrder = orderRepository.save(order);
         OrderResponse response = mapOrderToOrderResponse(cancelledOrder);
 
         // 1. Notification Database
         String msg = "Người mua đã hủy đơn hàng #" + order.getOrderId();
-        String link = "/seller/orders";
-        notificationService.sendNotificationToSeller(order.getSeller(), msg, link);
+        notificationService.sendNotificationToSeller(order.getSeller(), msg, "/seller/orders");
+        notificationService.sendNotificationToAdmin("Đơn hàng #" + order.getOrderId() + " đã bị hủy bởi người mua.", "/admin/orders");
 
         // 2. Realtime WebSocket cho Seller
-        sendRealtimeUpdate(
+        sendRealtimeUpdateToUser(
                 order.getSeller().getUser().getUsername(),
                 SocketEventType.SELLER_ORDER_CANCELLED,
+                response
+        );
+
+        // 3. Realtime WebSocket cho Admin (Realtime Dashboard)
+        sendRealtimeUpdateToAdmin(
+                SocketEventType.ADMIN_ORDER_CANCELLED,
                 response
         );
 
