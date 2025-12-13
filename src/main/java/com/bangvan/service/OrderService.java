@@ -13,7 +13,7 @@ public interface OrderService {
     @Transactional
     List<OrderResponse>  createOrder(CreateOrderRequest request, Principal principal);
 
-    List<OrderResponse> findOrderByUser(Principal principal);
+    PageCustomResponse<OrderResponse> findOrderByUser(Principal principal, Pageable pageable);
 
     PageCustomResponse<OrderResponse> findUserOrderHistory(Principal principal, Pageable pageable);
 

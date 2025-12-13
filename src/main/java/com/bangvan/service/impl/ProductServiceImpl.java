@@ -1,6 +1,5 @@
 package com.bangvan.service.impl;
 
-import com.bangvan.document.ProductDocument;
 import com.bangvan.dto.request.product.CreateProductRequest;
 import com.bangvan.dto.request.product.UpdateProductRequest;
 import com.bangvan.dto.request.product.UpdateStockRequest;
@@ -12,7 +11,6 @@ import com.bangvan.exception.ErrorCode;
 import com.bangvan.exception.ResourceNotFoundException;
 import com.bangvan.repository.*;
 import com.bangvan.service.ProductService;
-import com.bangvan.service.ProductSyncService;
 import jakarta.persistence.criteria.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,22 +19,10 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.elasticsearch.core.SearchHit;
-import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
-
-import org.springframework.data.elasticsearch.client.elc.NativeQuery;
-import org.springframework.data.elasticsearch.core.query.Query;
-import co.elastic.clients.elasticsearch._types.query_dsl.Operator;
-
-import com.bangvan.dto.response.seller.SellerResponse;
-import com.bangvan.dto.response.category.CategoryResponse;
-import com.bangvan.dto.response.user.UserResponse;
-import com.bangvan.entity.BusinessDetails;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -56,13 +42,9 @@ public class ProductServiceImpl implements ProductService {
     private final ProductVariantRepository productVariantRepository;
     private static final Set<String> ALLOWED_SORT_FIELDS = Set.of("id", "title", "price", "sellingPrice", "createdAt", "updatedAt", "averageRating", "sold");
     private final UserRepository userRepository;
-
-
-
     private final ReviewRepository reviewRepository;
-    private final ProductSyncService productSyncService;
-    private final ElasticsearchOperations elasticsearchOperations;
 
+    // Đã xóa ProductSyncService và ElasticsearchOperations
 
     @Transactional
     @Override
@@ -77,7 +59,6 @@ public class ProductServiceImpl implements ProductService {
         product.setSeller(seller);
         product.setCategory(category);
         product.setVariants(new HashSet<>());
-
 
         for (ProductVariant variantRequest : request.getVariants()) {
             ProductVariant newVariant = new ProductVariant();
@@ -95,12 +76,10 @@ public class ProductServiceImpl implements ProductService {
 
         Product savedProduct = productRepository.save(product);
 
-
-        productSyncService.syncProductToElasticsearch(savedProduct);
+        // Đã xóa logic syncProductToElasticsearch
 
         return mapProductToResponse(savedProduct);
     }
-
 
     private ProductResponse mapProductToResponse(Product product) {
         ProductResponse response = modelMapper.map(product, ProductResponse.class);
@@ -109,13 +88,11 @@ public class ProductServiceImpl implements ProductService {
         return response;
     }
 
-
     @Override
     @Cacheable(value = "productDetails", key = "#productId")
     public ProductResponse getProductById(Long productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product", "id", productId));
-
 
         return mapProductToResponseWithRating(product);
     }
@@ -175,15 +152,11 @@ public class ProductServiceImpl implements ProductService {
 
             if (minRating != null && minRating > 0) {
                 Subquery<Double> avgRatingSubquery = query.subquery(Double.class);
-
-
-
                 Root<Review> reviewRootSub = avgRatingSubquery.from(Review.class);
                 Join<Review, OrderItem> orderItemJoin = reviewRootSub.join("orderItem");
                 Join<OrderItem, ProductVariant> variantJoin = orderItemJoin.join("variant");
                 avgRatingSubquery.select(criteriaBuilder.avg(reviewRootSub.get("rating")))
                         .where(criteriaBuilder.equal(variantJoin.get("product"), root));
-
 
                 predicates.add(criteriaBuilder.greaterThanOrEqualTo(avgRatingSubquery, minRating));
             }
@@ -239,30 +212,21 @@ public class ProductServiceImpl implements ProductService {
                 categoriesToProcess.offer(child);
             }
         }
-
-        log.debug("Found category IDs including children for {}: {}", categoryId, collectedCategoryIds);
         return collectedCategoryIds;
     }
-
-
 
     private ProductResponse mapProductToResponseWithRating(Product product) {
         ProductResponse response = modelMapper.map(product, ProductResponse.class);
         response.setTotalQuantity(product.getTotalQuantity());
         response.setTotalSold(product.getTotalSold());
 
-
         Double averageRating = reviewRepository.findAverageRatingByProductId(product.getId());
-
-
         double avg = (averageRating != null) ? averageRating : 0.0;
-
         avg = Math.round(avg * 10.0) / 10.0;
 
         response.setAverageRating(avg);
         return response;
     }
-
 
     @Override
     public String validateSortByField(String sortBy) {
@@ -336,11 +300,10 @@ public class ProductServiceImpl implements ProductService {
 
         Product updatedProduct = productRepository.save(product);
 
-        productSyncService.syncProductToElasticsearch(updatedProduct);
+        // Đã xóa logic syncProductToElasticsearch
 
         return mapProductToResponse(updatedProduct);
     }
-
 
     @Transactional
     @Override
@@ -374,7 +337,7 @@ public class ProductServiceImpl implements ProductService {
 
         productRepository.delete(product);
 
-        productSyncService.deleteProductFromElasticsearch(productId);
+        // Đã xóa logic deleteProductFromElasticsearch
 
         return "Product with ID " + productId + " has been deleted successfully.";
     }
@@ -437,83 +400,23 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public PageCustomResponse<ProductResponse> searchProduct(String keyword, Pageable pageable) {
-        log.info("Searching products in Elasticsearch with keyword: {}", keyword);
-        Query query = NativeQuery.builder()
-                .withQuery(q -> q
-                        .multiMatch(m -> m
-                                .fields("title", "description")
-                                .query(keyword)
-                                .fuzziness("AUTO")
-                                .operator(Operator.Or)
-                        )
-                )
-                .withPageable(pageable)
-                .build();
+        log.info("Searching products in Database with keyword: {}", keyword);
+        // Sử dụng JPQL LIKE search từ ProductRepository
+        Page<Product> productPage = productRepository.searchProducts(keyword, pageable);
 
-        SearchHits<ProductDocument> searchHits = elasticsearchOperations.search(query, ProductDocument.class);
-
-
-        List<ProductResponse> productResponses = searchHits.stream()
-                .map(SearchHit::getContent)
-                .map(this::mapDocumentToResponse)
+        List<ProductResponse> productResponses = productPage.getContent().stream()
+                .map(this::mapProductToResponseWithRating)
                 .collect(Collectors.toList());
 
         return PageCustomResponse.<ProductResponse>builder()
-                .pageNo(pageable.getPageNumber() + 1)
-                .pageSize(pageable.getPageSize())
-                .totalPages((int) Math.ceil((double) searchHits.getTotalHits() / pageable.getPageSize()))
-                .totalElements(searchHits.getTotalHits())
+                .pageNo(productPage.getNumber() + 1)
+                .pageSize(productPage.getSize())
+                .totalPages(productPage.getTotalPages())
+                .totalElements(productPage.getTotalElements())
                 .pageContent(productResponses)
                 .build();
     }
-    private ProductResponse mapDocumentToResponse(ProductDocument doc) {
-        ProductResponse response = new ProductResponse();
 
-
-        response.setId(doc.getId());
-        response.setTitle(doc.getTitle());
-        response.setDescription(doc.getDescription());
-        response.setPrice(doc.getPrice());
-        response.setSellingPrice(doc.getSellingPrice());
-        response.setDiscountPercent(doc.getDiscountPercent());
-
-
-        response.setImages(doc.getImages() != null ? doc.getImages() : new ArrayList<>());
-
-        response.setNumRatings(doc.getNumRatings());
-        response.setAverageRating(doc.getAverageRating());
-
-        response.setTotalSold(doc.getTotalSold());
-
-
-        if (doc.getSellerId() != null) {
-            SellerResponse sellerResp = new SellerResponse();
-
-
-            UserResponse userResp = new UserResponse();
-            userResp.setId(doc.getSellerId());
-            userResp.setAvatar(doc.getSellerAvatar());
-
-            BusinessDetails businessDetails = new BusinessDetails();
-            businessDetails.setBusinessName(doc.getSellerName());
-
-            sellerResp.setUser(userResp);
-            sellerResp.setBusinessDetails(businessDetails);
-
-            response.setSeller(sellerResp);
-        }
-
-        if (doc.getCategoryId() != null) {
-            CategoryResponse catResp = new CategoryResponse();
-            catResp.setId(doc.getCategoryId());
-            catResp.setName(doc.getCategoryName());
-            response.setCategory(catResp);
-        }
-
-        response.setVariants(new HashSet<>());
-
-        return response;
-    }
     @Override
     public PageCustomResponse<ProductResponse> findProductByCategory(Long categoryId, Pageable pageable) {
         categoryRepository.findById(categoryId)

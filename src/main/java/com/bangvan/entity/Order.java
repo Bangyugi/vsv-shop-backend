@@ -23,6 +23,10 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     Long id;
 
+    // Optimistic Locking: Ngăn chặn race condition khi buyer và seller cùng thao tác
+    @Version
+    Long version;
+
     String orderId;
 
     @ManyToOne
@@ -41,14 +45,6 @@ public class Order {
     Address shippingAddress;
 
     BigDecimal totalPrice;
-
-//    @Embedded
-//    PaymentDetails paymentDetails = new PaymentDetails();
-
-//
-//    BigDecimal totalSellingPrice;
-
-//    Integer discountPercent;
 
     @Enumerated(EnumType.STRING)
     OrderStatus orderStatus;

@@ -37,18 +37,27 @@ public class OrderController {
     }
 
     @GetMapping("/my-orders")
-    @Operation(summary = "Find orders by user", description = "Endpoint for users to view their order history")
-    public ResponseEntity<ApiResponse> findOrderByUser(Principal principal) {
+    @Operation(summary = "Find orders by user", description = "Endpoint for users to view their order history with pagination")
+    public ResponseEntity<ApiResponse> findOrderByUser(
+            Principal principal,
+            @RequestParam(value = "pageNo", defaultValue = "1", required = false) int pageNo,
+            @RequestParam(value = "pageSize", defaultValue = "10", required = false) int pageSize,
+            @RequestParam(value = "sortBy", defaultValue = "orderDate", required = false) String sortBy,
+            @RequestParam(value = "sortDir", defaultValue = "DESC", required = false) String sortDir
+    ) {
+
+        Pageable pageable = PageRequest.of(pageNo - 1, pageSize, Sort.by(Sort.Direction.fromString(sortDir), sortBy));
+
         ApiResponse apiResponse = ApiResponse.success(
                 HttpStatus.OK.value(),
                 "Orders fetched successfully",
-                orderService.findOrderByUser(principal)
+                orderService.findOrderByUser(principal, pageable)
         );
         return new ResponseEntity<>(apiResponse, HttpStatus.OK);
     }
 
     @GetMapping("/{orderId}")
-    @PreAuthorize("isAuthenticated()") // Yêu cầu đăng nhập
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Find order by ID", description = "Endpoint for a user (buyer), seller, or admin to find a specific order by its ID.")
     public ResponseEntity<ApiResponse> findOrderById(@PathVariable Long orderId, Principal principal) {
         ApiResponse apiResponse = ApiResponse.success(
@@ -59,8 +68,8 @@ public class OrderController {
         return new ResponseEntity<>(apiResponse, HttpStatus.OK);
     }
 
-    @GetMapping("/uuid/{orderId}") // Sử dụng path khác để phân biệt
-    @PreAuthorize("isAuthenticated()") // Yêu cầu đăng nhập
+    @GetMapping("/uuid/{orderId}")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Find order by OrderId (String UUID)", description = "Endpoint for a user (buyer), seller, or admin to find a specific order by its public String UUID (orderId).")
     public ResponseEntity<ApiResponse> findOrderByOrderIdString(@PathVariable String orderId, Principal principal) {
         ApiResponse apiResponse = ApiResponse.success(
