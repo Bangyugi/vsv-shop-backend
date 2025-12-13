@@ -87,3 +87,6 @@ application:
       expiration: ${JWT_EXPIRATION} # Ví dụ: 86400000
       refresh-token:
         expiration: ${JWT_REFRESH_EXPIRATION} # Ví dụ: 604800000
+
+  otp:
+    expiration-minutes: 15
