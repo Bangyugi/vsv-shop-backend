@@ -2,7 +2,7 @@ package com.bangvan.dto.response.product;
 
 import com.bangvan.dto.response.category.CategoryResponse;
 import com.bangvan.dto.response.seller.SellerResponse;
-import com.bangvan.entity.ProductVariant;
+// Xóa import Entity cũ: import com.bangvan.entity.ProductVariant;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
@@ -25,9 +25,13 @@ public class ProductResponse {
     Integer discountPercent;
     List<String> images;
     Integer numRatings;
+
     SellerResponse seller;
     CategoryResponse category;
-    Set<ProductVariant> variants = new HashSet<>();
+
+
+    Set<ProductVariantResponse> variants = new HashSet<>();
+
     Double averageRating;
     Integer totalQuantity;
     Integer totalSold;
