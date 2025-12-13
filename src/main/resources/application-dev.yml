@@ -7,16 +7,16 @@ spring:
   devtools:
     add-properties: true
   datasource:
-    url: jdbc:postgresql://localhost:5432/vsv?createDatabaseIfNotExist=true
+    url: jdbc:postgresql://db.tjwanqufdnizznrmbheh.supabase.co:5432/postgres
     username: postgres
-    password: 5zm7aa8o
+    password: 5zm7aa8obang
   jpa:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         jdbc:
           time_zone: Asia/Ho_Chi_Minh
-    show-sql: true
+    show-sql: false
     hibernate:
       ddl-auto: create
     defer-datasource-initialization: true
@@ -58,8 +58,8 @@ app:
     refresh-expiration-milliseconds: 604800000
   redis:
     port: 6379
-    host: localhost
-    password: 5zm7aa8o
+    host: wondrous-gelding-14608.upstash.io
+    password: ATkQAAIncDFjYjVjODQzZjkzOGY0MWE5OTA1NDVjZmM1YzY4MzU3ZnAxMTQ2MDg
   otp:
     expiration-minutes: 15
 cloudinary:

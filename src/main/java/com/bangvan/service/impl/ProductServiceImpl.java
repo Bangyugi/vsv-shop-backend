@@ -44,8 +44,6 @@ public class ProductServiceImpl implements ProductService {
     private final UserRepository userRepository;
     private final ReviewRepository reviewRepository;
 
-    // Đã xóa ProductSyncService và ElasticsearchOperations
-
     @Transactional
     @Override
     public ProductResponse createProduct(CreateProductRequest request, Principal principal) {
@@ -75,9 +73,6 @@ public class ProductServiceImpl implements ProductService {
         }
 
         Product savedProduct = productRepository.save(product);
-
-        // Đã xóa logic syncProductToElasticsearch
-
         return mapProductToResponse(savedProduct);
     }
 
@@ -91,6 +86,8 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Cacheable(value = "productDetails", key = "#productId")
     public ProductResponse getProductById(Long productId) {
+        // Log để kiểm tra xem request có hit vào database hay không (Check cache miss)
+        log.info("Fetching product from Database with ID: {}", productId);
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product", "id", productId));
 
@@ -299,9 +296,6 @@ public class ProductServiceImpl implements ProductService {
         }
 
         Product updatedProduct = productRepository.save(product);
-
-        // Đã xóa logic syncProductToElasticsearch
-
         return mapProductToResponse(updatedProduct);
     }
 
@@ -336,9 +330,6 @@ public class ProductServiceImpl implements ProductService {
         }
 
         productRepository.delete(product);
-
-        // Đã xóa logic deleteProductFromElasticsearch
-
         return "Product with ID " + productId + " has been deleted successfully.";
     }
 
@@ -355,8 +346,13 @@ public class ProductServiceImpl implements ProductService {
         return discountPercentage.intValue();
     }
 
+    /**
+     * Cập nhật: Thêm @CacheEvict để xóa cache productDetails khi update kho.
+     * Sử dụng key="#result.id" để lấy ID của Product từ ProductResponse trả về.
+     */
     @Transactional
     @Override
+    @CacheEvict(value = "productDetails", key = "#result.id")
     public ProductResponse updateProductStock(Long variantId, UpdateStockRequest request, Principal principal) {
         ProductVariant variant = productVariantRepository.findById(variantId)
                 .orElseThrow(() -> new ResourceNotFoundException("ProductVariant", "id", variantId));
@@ -367,9 +363,15 @@ public class ProductServiceImpl implements ProductService {
         if (!product.getSeller().getId().equals(seller.getId())) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
+
+        // Update logic
         variant.setQuantity(request.getQuantity());
         productVariantRepository.save(variant);
-        Product updatedProduct = productRepository.findById(product.getId()).get();
+
+        // Fetch fresh product data for response
+        Product updatedProduct = productRepository.findById(product.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Product", "id", product.getId()));
+
         return mapProductToResponseWithRating(updatedProduct);
     }
 
@@ -401,7 +403,6 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public PageCustomResponse<ProductResponse> searchProduct(String keyword, Pageable pageable) {
         log.info("Searching products in Database with keyword: {}", keyword);
-        // Sử dụng JPQL LIKE search từ ProductRepository
         Page<Product> productPage = productRepository.searchProducts(keyword, pageable);
 
         List<ProductResponse> productResponses = productPage.getContent().stream()
