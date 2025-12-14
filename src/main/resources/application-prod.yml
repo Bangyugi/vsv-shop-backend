@@ -23,15 +23,28 @@ spring:
 #      mode: always
   mail:
     host: smtp.gmail.com
-    port: 587
-    username: bangtranvan08@gmail.com
-    password: csifbkuvrfiggsnc
+    port: 465 # Đổi từ 587 sang 465
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    protocol: smtps # Đổi protocol thành smtps
     properties:
       mail:
-        smtp:
+        transport:
+          protocol: smtps
+        smtps:
           auth: true
           starttls:
-            enable: true
+            enable: true # Google vẫn yêu cầu bật cái này
+            required: true
+          ssl:
+            trust: "*" # Tin tưởng certificate của Google
+            checkserveridentity: false
+        debug: true
+        # Tăng timeout để tránh bị treo mãi mãi không báo lỗi
+        smtp:
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
 
 
 environment:

@@ -1,4 +1,15 @@
 services:
+  backend:
+    container_name: vsv-shop-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   postgres:
     image: postgres
